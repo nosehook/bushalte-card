@@ -1,5 +1,5 @@
 /*
- * bushalte-card  v1.0.0
+ * bushalte-card  v1.1.0
  * Lovelace card that shows a "Bus vertrektijden" stop as a Dutch bus stop sign (haltepaal):
  * blue head with bus pictogram, yellow name board, orange line panels with minutes + time,
  * a live departures panel and the pole.
@@ -10,10 +10,11 @@
  *     - line: "73"
  *       direction: Zeist
  *   rows: 5                      # departures in the bottom panel
+ *   fill_rows: true              # pad the bottom panel with empty lines up to rows
  *   show_pole: true
  */
 (() => {
-  const VERSION = "1.0.0";
+  const VERSION = "1.1.0";
   const TAG = "bushalte-card";
   const BAD = new Set(["unavailable", "unknown", undefined, null, ""]);
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -73,6 +74,7 @@
     .row .m { font-weight:700; text-align:right; white-space:nowrap; }
     .row .t { text-align:right; opacity:.8; font-variant-numeric:tabular-nums; }
     .row.x { text-decoration:line-through; opacity:.55; }
+    .row.empty .badge { visibility:hidden; }
     .empty-msg { font-size:13px; opacity:.7; padding:4px 0; }
     .alert { background:var(--bh-ink); color:var(--bh-yellow); font-size:12px; padding:6px 8px; border-radius:6px; margin-top:7px; display:flex; gap:6px; }
     .bracket { height:14px; margin:-4px 8px 0; background:#8a9096; border-radius:0 0 10px 10px; }
@@ -102,6 +104,7 @@
             { name: "show_pole", selector: { boolean: {} } },
             { name: "show_trip", selector: { boolean: {} } },
             { name: "strip_city", selector: { boolean: {} } },
+            { name: "fill_rows", selector: { boolean: {} } },
           ] },
           { type: "expandable", name: "", title: "Lijnvakken (leeg = automatisch)", icon: "mdi:bus-multiple", flatten: true, schema: [
             { type: "grid", name: "", flatten: true, schema: [...tile(1), ...tile(2), ...tile(3), ...tile(4)] },
@@ -111,7 +114,7 @@
         ],
         computeLabel: (s) => ({
           entity: "Bushalte (sensor)", name: "Naam op het bord", rows: "Regels vertrektijden", show_pole: "Paal tonen",
-          show_trip: "Routenaam tonen (bijv. U-link)", strip_city: "Plaatsnaam weglaten", rows_follow_tiles: "Onderpaneel alleen voor gekozen lijnvakken",
+          show_trip: "Routenaam tonen (bijv. U-link)", strip_city: "Plaatsnaam weglaten", fill_rows: "Altijd alle regels tonen", rows_follow_tiles: "Onderpaneel alleen voor gekozen lijnvakken",
           language: "Taal",
           tile1_line: "Vak 1 \u2014 lijn", tile1_direction: "Vak 1 \u2014 richting", tile2_line: "Vak 2 \u2014 lijn", tile2_direction: "Vak 2 \u2014 richting",
           tile3_line: "Vak 3 \u2014 lijn", tile3_direction: "Vak 3 \u2014 richting", tile4_line: "Vak 4 \u2014 lijn", tile4_direction: "Vak 4 \u2014 richting",
@@ -120,13 +123,14 @@
           name: "Leeg = haltenaam uit de sensor.",
           tile1_direction: "Bestemming zoals op de bus, bijv. Zeist. Leeg = alle richtingen van die lijn.",
           rows_follow_tiles: "Aan: alleen vertrekken van de lijnen/richtingen in de vakken.",
+          fill_rows: "Aan: lege regels aanvullen tot het aantal regels, zodat elk bord even hoog is.",
         }[s.name]),
       };
     }
 
     setConfig(config) {
       if (!config) throw new Error("Invalid configuration");
-      this._config = { rows: 5, show_pole: true, show_trip: true, strip_city: true, rows_follow_tiles: true, language: "nl", ...config };
+      this._config = { rows: 5, show_pole: true, show_trip: true, strip_city: true, rows_follow_tiles: true, fill_rows: false, language: "nl", ...config };
       this._lang = String(this._config.language).startsWith("en") ? "en" : "nl";
       this._last = null;
       if (this._hass) this._render();
@@ -222,11 +226,14 @@
       const rows = pool.slice(0, rowsN).map((d) => `<div class="row${d.cancelled ? " x" : ""}"><span class="badge">${esc(d.line)}</span>
         <span class="d">${esc(d.dir)}${d.cancelled ? ` \u2014 ${t("cancelled")}` : ""}${c.show_trip && d.trip && !d.cancelled ? ` <small>${esc(d.trip)}</small>` : ""}${!d.cancelled && d.delay > 0 ? `<span class="dl">+${d.delay}</span>` : ""}</span>
         <span class="m">${d.mins === 0 ? t("now") : `${d.mins} ${t("min")}`}</span><span class="t">${esc(d.time)}</span></div>`).join("");
+      const shown = Math.min(pool.length, rowsN);
+      const pad = c.fill_rows && rowsN > 0 ? rowsN - Math.max(shown, 1) : 0;
+      const filler = '<div class="row empty"><span class="badge">&nbsp;</span><span class="d"></span><span class="m"></span><span class="t"></span></div>'.repeat(Math.max(pad, 0));
       const alerts = [...new Set([...(a.alerts || []), ...pool.slice(0, rowsN).flatMap((d) => d.alerts)])];
       const clock = new Date().toLocaleTimeString(this._hass.locale?.language || "nl", { hour: "2-digit", minute: "2-digit" });
       const title = !auto && c.rows_follow_tiles && tiles.length === 1 ? `${tiles[0].line}${tiles[0].direction ? " \u2192 " + tiles[0].direction : ""}` : t("live");
       const bottom = rowsN > 0 || alerts.length ? `<div class="bottom"><div class="bh"><span>${esc(title)}</span><span>${offline ? t("offline") : clock}</span></div>
-        ${rowsN > 0 ? rows || `<div class="empty-msg">${offline ? t("offline") : t("none")}</div>` : ""}
+        ${rowsN > 0 ? (rows || `<div class="empty-msg">${offline ? t("offline") : t("none")}</div>`) + filler : ""}
         ${alerts.map((x) => `<div class="alert">\u26A0 <span>${esc(x)}</span></div>`).join("")}</div>` : "";
 
       return `<div class="sign${offline ? " stale" : ""}"><div class="inner">
