@@ -1,5 +1,5 @@
 /*
- * bushalte-card  v1.1.0
+ * bushalte-card  v1.1.1
  * Lovelace card that shows a "Bus vertrektijden" stop as a Dutch bus stop sign (haltepaal):
  * blue head with bus pictogram, yellow name board, orange line panels with minutes + time,
  * a live departures panel and the pole.
@@ -14,7 +14,7 @@
  *   show_pole: true
  */
 (() => {
-  const VERSION = "1.1.0";
+  const VERSION = "1.1.1";
   const TAG = "bushalte-card";
   const BAD = new Set(["unavailable", "unknown", undefined, null, ""]);
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -165,6 +165,7 @@
           const d = hm(s.computed_time) - hm(s.departure_time);
           delay = isNaN(d) ? 0 : d < -720 ? d + 1440 : d > 720 ? d - 1440 : d;
         }
+        delay = Math.round(Number(delay)) || 0; // attribute value: only ever render a number
         return { line: String(s.bus_number ?? ""), dir: s.name || "", trip: s.trip_name, time: s.computed_time || "",
           exp, mins: Math.max(0, Math.floor((exp - now) / 60000)), delay, cancelled: !!s.cancelled, alerts: s.alerts || [] };
       }).filter((d) => d.exp > now - 30000).sort((x, y) => x.exp - y.exp);
